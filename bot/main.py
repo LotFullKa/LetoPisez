@@ -13,7 +13,7 @@ from telegram.ext import (
 
 from config.settings import settings
 from services.entities import ParsedLog
-from services.gemini_client import gemini_client
+from services.gemini_client import GeminiError, gemini_client
 from services.git_sync import GitPullError, git_sync
 from services.vault_manager import vault_manager
 
@@ -105,8 +105,19 @@ async def log_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     await message.reply_text("Обрабатываю лог через Gemini и обновляю Obsidian Vault...")
 
-    parsed = gemini_client.extract_entities(text)
-    parsed.raw_text = text
+    try:
+        parsed = gemini_client.extract_entities(text)
+    except GeminiError as exc:
+        # Если Gemini недоступен (например, из-за ограничений по региону),
+        # просто сохраняем сырой лог без структурированного разбора.
+        await message.reply_text(
+            "Не получилось обратиться к Gemini (возможно, ограничение по региону).\n"
+            "Я сохраню только сырой лог без разбора NPC/локаций/квестов.\n\n"
+            f"Техническая причина:\n{exc}",
+        )
+        parsed = ParsedLog(raw_text=text)
+    else:
+        parsed.raw_text = text
 
     session_path = vault_manager.apply_parsed_log(parsed)
     git_sync.sync("session log")

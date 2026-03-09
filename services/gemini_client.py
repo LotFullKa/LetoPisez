@@ -16,6 +16,10 @@ TEXT_MODEL_NAME = "gemini-3.1-flash-lite-preview"
 AUDIO_MODEL_NAME = "gemini-3.1-flash-lite-preview"
 
 
+class GeminiError(Exception):
+    """Generic Gemini API error."""
+
+
 class GeminiClient:
     def __init__(
         self,
@@ -32,15 +36,19 @@ class GeminiClient:
             "Transcribe the following tabletop RPG session audio to Russian text. "
             "Return only the transcript, without extra comments."
         )
-        result = self._audio_model.generate_content(
-            [
-                prompt,
-                {
-                    "mime_type": "audio/ogg",
-                    "data": audio_bytes,
-                },
-            ],
-        )
+        try:
+            result = self._audio_model.generate_content(
+                [
+                    prompt,
+                    {
+                        "mime_type": "audio/ogg",
+                        "data": audio_bytes,
+                    },
+                ],
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise GeminiError(str(exc)) from exc
+
         return (result.text or "").strip()
 
     def extract_entities(self, text: str) -> ParsedLog:
@@ -66,16 +74,19 @@ class GeminiClient:
             "Use Russian field values where appropriate."
         )
 
-        result = self._text_model.generate_content(
-            [
-                system_prompt,
-                "Session log:\n",
-                text,
-            ],
-            generation_config={
-                "response_mime_type": "application/json",
-            },
-        )
+        try:
+            result = self._text_model.generate_content(
+                [
+                    system_prompt,
+                    "Session log:\n",
+                    text,
+                ],
+                generation_config={
+                    "response_mime_type": "application/json",
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise GeminiError(str(exc)) from exc
 
         raw_json = result.text or "{}"
         data: Any = ParsedLog.model_validate_json(raw_json)
