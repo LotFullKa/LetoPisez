@@ -14,7 +14,7 @@ from telegram.ext import (
 from config.settings import settings
 from services.entities import ParsedLog
 from services.gemini_client import gemini_client
-from services.git_sync import git_sync
+from services.git_sync import GitPullError, git_sync
 from services.vault_manager import vault_manager
 
 
@@ -38,6 +38,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     text = (
         "Привет! Я твой Цифровой Летописец D&D.\n\n"
+        "Используй комнаду /log **Текст**" 
         "Отправь сообщение с логом сессии (текстом или голосом), "
         "затем ответь на него командой /log."
     )
@@ -64,17 +65,43 @@ async def log_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not message:
         return
 
-    src = message.reply_to_message or message
+    # Перед обработкой лога подтянуть изменения из репозитория Vault
+    try:
+        git_sync.pull()
+    except GitPullError as exc:
+        await message.reply_text(
+            "Не удалось выполнить git pull для летописи.\n"
+            "Разреши конфликты/настрой Git вручную в своём Vault и попробуй ещё раз.\n\n"
+            f"Сообщение git:\n{exc.message}",
+        )
+        return
 
-    if src.voice:
+    src = message.reply_to_message
+    text: str | None = None
+
+    if src and src.voice:
         await message.reply_text("Получил голосовой лог, начинаю транскрибацию...")
         text = await _process_voice(src, context)
+    elif src and (src.text or src.caption):
+        text = src.text or src.caption
+    elif context.args:
+        # Поддержка варианта `/log текст лога` в одном сообщении
+        text = " ".join(context.args)
     else:
-        content = src.text or src.caption
-        if not content:
-            await message.reply_text("В сообщении нет текста. Отправь текст или голос.")
-            return
-        text = content
+        await message.reply_text(
+            "Не нашёл текст лога.\n"
+            "Сделай так:\n"
+            "1) Отправь сообщение с описанием сессии (или голосовое).\n"
+            "2) Ответь на него командой /log\n"
+            "или используй `/log текст лога` в одном сообщении.",
+        )
+        return
+
+    if not text:
+        await message.reply_text(
+            "В логе нет текста. Отправь текст или голосовое сообщение.",
+        )
+        return
 
     await message.reply_text("Обрабатываю лог через Gemini и обновляю Obsidian Vault...")
 
