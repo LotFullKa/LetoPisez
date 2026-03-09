@@ -1,0 +1,19 @@
+version: "3.9"
+
+services:
+  dnd-chronicle-bot:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # При необходимости можно переопределить путь к Vault внутри контейнера
+      VAULT_PATH: /vault
+    volumes:
+      # Локальная папка с Obsidian Vault
+      - ./vault:/vault
+    # Если нужно пользоваться SSH-ключами/конфигом git хоста, можно пробросить ~/.ssh
+    # volumes:
+    #   - ./vault:/vault
+    #   - ~/.ssh:/root/.ssh:ro
+
