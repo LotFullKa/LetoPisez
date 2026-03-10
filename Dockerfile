@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
+RUN git config --global --add safe.directory /vault
 
 COPY . /app
 
