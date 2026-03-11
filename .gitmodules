@@ -1,3 +1,4 @@
 [submodule "Chronicle-vault"]
 	path = Chronicle-vault
 	url = git@github.com:LotFullKa/Chronicle-vault.git
+	branch = main
