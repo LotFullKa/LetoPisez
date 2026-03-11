@@ -107,6 +107,28 @@ class VaultManager:
         session_path = self._write_session_log(parsed)
         return session_path
 
+    def collect_campaign_corpus(self) -> str:
+        """
+        Собрать текстовую «летопись» кампании из файлов SessionLogs.
+
+        Сейчас для простоты берём целиком содержимое markdown-файлов сессий.
+        При необходимости можно сузить до секций «Сырой лог» и т.п.
+        """
+        session_dir = self.store.resolve("SessionLogs")
+        if not session_dir.exists() or not session_dir.is_dir():
+            return ""
+
+        parts: list[str] = []
+        for path in sorted(session_dir.glob("*.md")):
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            if text.strip():
+                parts.append(text)
+
+        return "\n\n---\n\n".join(parts)
+
     def _write_session_log(self, parsed: ParsedLog) -> Path:
         session_dir = Path("SessionLogs")
         today = parsed.session_date or datetime.utcnow().date()

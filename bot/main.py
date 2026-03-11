@@ -38,9 +38,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     text = (
         "Привет! Я твой Цифровой Летописец D&D.\n\n"
-        "Используй комнаду /log **Текст**" 
+        "Используй команду /log для записи новой сессии.\n"
         "Отправь сообщение с логом сессии (текстом или голосом), "
-        "затем ответь на него командой /log."
+        "затем ответь на него командой /log.\n\n"
+        "Команда /summary кратко перескажет всю историю кампании, "
+        "основанную на уже сохранённых сессиях."
     )
     await update.message.reply_text(text)  # type: ignore[union-attr]
 
@@ -49,10 +51,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not await _ensure_allowed(update, context):
         return
     text = (
-        "/log — проанализировать лог сессии.\n"
+        "/log — проанализировать лог сессии и сохранить его в летопись.\n"
         "Использование:\n"
         "1. Отправь текст или голосовое сообщение с описанием сессии.\n"
-        "2. Ответь на это сообщение командой /log."
+        "2. Ответь на это сообщение командой /log.\n\n"
+        "/summary — кратко пересказать всю историю кампании по сохранённым сессиям."
     )
     await update.message.reply_text(text)  # type: ignore[union-attr]
 
@@ -127,6 +130,57 @@ async def log_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     )
 
 
+async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _ensure_allowed(update, context):
+        return
+
+    message = update.message
+    if not message:
+        return
+
+    # Перед генерацией пересказа подтягиваем свежие изменения летописи
+    try:
+        git_sync.pull()
+    except GitPullError as exc:
+        await message.reply_text(
+            "Не удалось выполнить git pull для летописи.\n"
+            "Разреши конфликты/настрой Git вручную в своём Vault и попробуй ещё раз.\n\n"
+            f"Сообщение git:\n{exc.message}",
+        )
+        return
+
+    corpus = vault_manager.collect_campaign_corpus()
+    if not corpus.strip():
+        await message.reply_text(
+            "Пока нет сохранённых сессий, чтобы пересказать историю. "
+            "Сначала сохрани хотя бы одну сессию командой /log.",
+        )
+        return
+
+    await message.reply_text(
+        "Собираю летопись кампании и формирую краткий пересказ...",
+    )
+
+    try:
+        summary = gemini_client.summarize_campaign(corpus)
+    except GeminiError as exc:
+        await message.reply_text(
+            "Не получилось обратиться к Gemini для пересказа истории.\n\n"
+            f"Техническая причина:\n{exc}",
+        )
+        return
+
+    summary = summary.strip()
+    if not summary:
+        await message.reply_text(
+            "Не удалось сформировать пересказ истории. "
+            "Попробуй ещё раз позже.",
+        )
+        return
+
+    await message.reply_text(summary)
+
+
 async def _process_voice(
     message,
     context: ContextTypes.DEFAULT_TYPE,
@@ -151,6 +205,7 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("log", log_command))
+    application.add_handler(CommandHandler("summary", summary_command))
 
     application.run_polling()
 

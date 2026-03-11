@@ -62,12 +62,20 @@ class GitSync:
             message = f"{message} - {summary}"
 
         commit_result = self._run("git", "commit", "-m", message)
-        if commit_result.returncode != 0 and "nothing to commit" in (
-            commit_result.stderr or ""
-        ).lower():
-            return
+        stderr = (commit_result.stderr or "").lower()
 
-        self._run("git", "push")
+        if commit_result.returncode != 0:
+            # Если реально нечего коммитить — просто выходим.
+            if "nothing to commit" in stderr:
+                return
+
+            # В остальных случаях (нет user.name/user.email, pre-commit, и т.п.)
+            # явно сигнализируем об ошибке, а не делаем вид, что всё ок.
+            raise GitSyncError(commit_result.stderr or "git commit failed")
+
+        push_result = self._run("git", "push")
+        if push_result.returncode != 0:
+            raise GitSyncError(push_result.stderr or "git push failed")
 
 
 git_sync = GitSync(settings.vault_path)

@@ -88,12 +88,59 @@ class GeminiClient:
         except Exception as exc:  # noqa: BLE001
             raise GeminiError(str(exc)) from exc
 
-        raw_json = result.text or "{}"
-        data: Any = ParsedLog.model_validate_json(raw_json)
+        raw_json = (result.text or "{}").strip()
+
+        # На практике модель иногда всё равно оборачивает JSON в ``` или ```json.
+        # Срежем markdown-ограждения как в начале, так и в конце, если они есть.
+        lines = raw_json.splitlines()
+        if lines and lines[0].lstrip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].lstrip().startswith("```"):
+            lines = lines[:-1]
+        raw_json = "\n".join(lines).strip()
+
+        try:
+            data: Any = ParsedLog.model_validate_json(raw_json)
+        except Exception as exc:  # noqa: BLE001
+            # Пробрасываем более понятную ошибку с кусочком ответа модели.
+            snippet = raw_json[:500]
+            raise GeminiError(
+                f"Failed to parse Gemini JSON: {exc}\n\nSnippet:\n{snippet}",
+            ) from exc
+
         if isinstance(data, ParsedLog):
             return data
         # model_validate_json already returns ParsedLog, but keep fallback
         return ParsedLog.model_validate(data)
+
+    def summarize_campaign(self, text: str) -> str:
+        if not text.strip():
+            return ""
+
+        system_prompt = (
+            "Ты выступаешь в роли летописца Dungeons & Dragons.\n"
+            "Тебе дают выдержки из летописи кампании (логи сессий, заметки и т.п.).\n"
+            "На их основе СЖАТО перескажи историю, которую прожили главные герои.\n\n"
+            "Формат ответа:\n"
+            "- Пиши на русском языке.\n"
+            "- Сделай связный пересказ без списков.\n"
+            "- 3–6 абзацев, максимум 1500–2000 символов.\n"
+            "- Сфокусируйся на арках персонажей, ключевых поворотах сюжета и текущем статусе дел.\n"
+            "- Не упоминай технические детали наподобие файлов, ссылок Obsidian или разметки.\n"
+        )
+
+        try:
+            result = self._text_model.generate_content(
+                [
+                    system_prompt,
+                    "Фрагменты летописи кампании:\n",
+                    text,
+                ],
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise GeminiError(str(exc)) from exc
+
+        return (result.text or "").strip()
 
 
 gemini_client = GeminiClient()
