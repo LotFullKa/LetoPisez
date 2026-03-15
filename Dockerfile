@@ -8,12 +8,14 @@ WORKDIR /app
 # Системные зависимости: git + ssh-клиент для Git Sync по SSH-remote
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
-    openssh-client \
+    openssh-client \    
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 RUN git config --global --add safe.directory /vault
+RUN git config --global user.email "LetoPisez@gmail.com"
+RUN git config --global user.name "LetoPisez"
 
 COPY . /app
 

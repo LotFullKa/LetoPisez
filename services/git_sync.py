@@ -73,7 +73,7 @@ class GitSync:
             # явно сигнализируем об ошибке, а не делаем вид, что всё ок.
             raise GitSyncError(commit_result.stderr or "git commit failed")
 
-        push_result = self._run("git", "push")
+        push_result = self._run("git", "push", "origin", "master")
         if push_result.returncode != 0:
             raise GitSyncError(push_result.stderr or "git push failed")
 

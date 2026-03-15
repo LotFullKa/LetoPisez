@@ -15,5 +15,5 @@ services:
     # Если нужно пользоваться SSH-ключами/конфигом git хоста, можно пробросить ~/.ssh
     # volumes:
     #   - ./vault:/vault
-      - ~/.ssh:/root/.ssh:ro
+      - /home/lotfullka/.ssh:/root/.ssh:ro
 
