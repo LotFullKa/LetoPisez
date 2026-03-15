@@ -65,8 +65,12 @@ class GitSync:
         stderr = (commit_result.stderr or "").lower()
 
         if commit_result.returncode != 0:
-            # Если реально нечего коммитить — просто выходим.
-            if "nothing to commit" in stderr:
+            # Если реально нечего коммитить — просто выходим (англ. и рус. сообщения git).
+            if (
+                "nothing to commit" in stderr
+                or "нечего коммитить" in stderr
+                or "working tree clean" in stderr
+            ):
                 return
 
             # В остальных случаях (нет user.name/user.email, pre-commit, и т.п.)

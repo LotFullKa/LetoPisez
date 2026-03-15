@@ -86,6 +86,11 @@ def _sanitize_name(name: str) -> str:
     return cleaned or "unnamed"
 
 
+def _normalize_name_for_match(name: str) -> str:
+    """Normalize name for matching (e.g. Gemini response vs vault file)."""
+    return " ".join(name.strip().split()) if name else ""
+
+
 def _wiki(name: str) -> str:
     return f"[[{name}]]"
 
@@ -501,14 +506,22 @@ class VaultManager:
 
     def list_entity_names(self, folder: str) -> List[str]:
         """List display names of entities in a vault folder (e.g. NPCs, Locations)."""
+        return [name for name, _ in self.list_entity_names_and_paths(folder)]
+
+    def list_entity_names_and_paths(self, folder: str) -> List[Tuple[str, Path]]:
+        """
+        List (display_name, rel_path) for each entity in a vault folder.
+        Used by refresh to resolve file paths even when Gemini returns slightly different names.
+        """
         dir_path = self.store.resolve(folder)
         if not dir_path.exists() or not dir_path.is_dir():
             return []
-        names: List[str] = []
+        result: List[Tuple[str, Path]] = []
         for path in sorted(dir_path.glob("*.md")):
             if path.name.startswith("_"):
                 continue
-            content = self.store.read(Path(folder) / path.name)
+            rel_path = Path(folder) / path.name
+            content = self.store.read(rel_path)
             if not content:
                 continue
             _, body = _split_frontmatter(content)
@@ -518,9 +531,9 @@ class VaultManager:
                 if line.startswith("# ") and not line.startswith("## "):
                     name = line[2:].strip()
                     if name:
-                        names.append(name)
+                        result.append((name, rel_path))
                     break
-        return names
+        return result
 
     def _collect_all_entity_names(self) -> List[str]:
         """Collect names from NPCs, Locations, Quests, Items for wiki-link injection."""
@@ -539,12 +552,16 @@ class VaultManager:
         entity_type is "npc" or "location". Returns number of files updated.
         """
         folder = "NPCs" if entity_type == "npc" else "Locations"
-        names = self.list_entity_names(folder)
-        if not names:
+        name_path_pairs = self.list_entity_names_and_paths(folder)
+        if not name_path_pairs:
             return 0
-        try:
-            summaries = gemini_client.update_entity_summaries(corpus, entity_type, names)
-        except Exception:
+        names = [n for n, _ in name_path_pairs]
+        # Map normalized name -> rel_path so we find the file even if Gemini returns slightly different name
+        path_by_normalized: Dict[str, Path] = {
+            _normalize_name_for_match(n): p for n, p in name_path_pairs
+        }
+        summaries = gemini_client.update_entity_summaries(corpus, entity_type, names)
+        if not summaries:
             return 0
         all_names = self._collect_all_entity_names()
         updated = 0
@@ -552,7 +569,11 @@ class VaultManager:
             name = item.get("name")
             if not name:
                 continue
-            rel_path = Path(folder) / f"{_sanitize_name(name)}.md"
+            normalized = _normalize_name_for_match(name)
+            rel_path = path_by_normalized.get(normalized)
+            if not rel_path:
+                # Fallback: try exact filename from Gemini name
+                rel_path = Path(folder) / f"{_sanitize_name(name)}.md"
             existing = self.store.read(rel_path)
             if not existing:
                 continue
