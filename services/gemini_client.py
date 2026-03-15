@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
 import json
 import time
+from pathlib import Path
+from typing import Any, Dict, List
 
 import google.generativeai as genai
 
@@ -63,17 +63,24 @@ class GeminiClient:
             '  \"session_date\": string | null,\n'
             '  \"npcs\": [ { \"name\": string, \"description\": string | null, '
             '\"status\": string | null, \"tags\": [string] | null, '
-            '\"links_to_locations\": [string] | null } ],\n'
+            '\"links_to_locations\": [string] | null, \"related_npcs\": [string] | null, '
+            '\"history_snippet\": string | null } ],\n'
             '  \"locations\": [ { \"name\": string, \"description\": string | null, '
-            '\"status\": string | null, \"region\": string | null } ],\n'
+            '\"status\": string | null, \"region\": string | null, '
+            '\"related_npcs\": [string] | null, \"related_locations\": [string] | null, '
+            '\"history_snippet\": string | null } ],\n'
             '  \"quests\": [ { \"name\": string, \"summary\": string | null, '
             '\"status\": string | null, \"related_npcs\": [string] | null, '
             '\"related_locations\": [string] | null } ],\n'
             '  \"items\": [ { \"name\": string, \"description\": string | null, '
-            '\"owner\": string | null, \"status\": string | null } ]\n'
+            '\"owner\": string | null, \"status\": string | null, '
+            '\"related_npcs\": [string] | null } ]\n'
             "}\n\n"
             "session_date can be approximated from the text or set to null.\n"
-            "Use Russian field values where appropriate."
+            "Use Russian field values where appropriate.\n"
+            "Use exact entity names in history_snippet and related_* so we can turn them into wiki-links. "
+            "For history_snippet write 1-3 sentences about this entity in this session; "
+            "mention other characters and locations by exact name."
         )
 
         try:
@@ -202,6 +209,70 @@ class GeminiClient:
             raise GeminiError(str(exc)) from exc
 
         return (result.text or "").strip()
+
+    def update_entity_summaries(
+        self,
+        corpus: str,
+        entity_type: str,
+        entity_names: List[str],
+    ) -> List[Dict[str, Any]]:
+        """
+        From campaign corpus, produce updated description and related links
+        for each entity (npc or location). entity_type is "npc" or "location".
+        Returns list of { "name", "updated_description", "related_npcs", "related_locations" }.
+        """
+        if not corpus.strip() or not entity_names:
+            return []
+
+        type_ru = "персонажей (NPC)" if entity_type == "npc" else "локаций"
+        system_prompt = (
+            "Ты анализируешь летопись кампании D&D и обновляешь описания сущностей.\n\n"
+            f"Тебе даны имена {type_ru}. Для каждого имени сформируй краткое обновлённое описание "
+            "(2–5 предложений) на основе летописи. Упоминай других персонажей и локации по их точным именам "
+            "(как в тексте), чтобы можно было превратить их в вики-ссылки.\n\n"
+            "Верни СТРОГО валидный JSON в UTF-8 без markdown-ограждений. Формат:\n"
+            "[ { \"name\": string, \"updated_description\": string, "
+            "\"related_npcs\": [string] | null, \"related_locations\": [string] | null } ]\n\n"
+            "Используй русский язык в описаниях."
+        )
+        names_block = "\n".join(f"- {n}" for n in entity_names)
+        user_content = f"Летопись кампании:\n\n{corpus}\n\n---\n\nИмена {type_ru}:\n{names_block}"
+
+        try:
+            result = self._text_model.generate_content(
+                [system_prompt, user_content],
+                generation_config={"response_mime_type": "application/json"},
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise GeminiError(str(exc)) from exc
+
+        raw_json = (result.text or "[]").strip()
+        lines = raw_json.splitlines()
+        if lines and lines[0].lstrip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].lstrip().startswith("```"):
+            lines = lines[:-1]
+        raw_json = "\n".join(lines).strip()
+
+        try:
+            data: Any = json.loads(raw_json)
+        except json.JSONDecodeError as exc:
+            raise GeminiError(
+                f"Failed to parse update_entity_summaries JSON: {exc}\n\nSnippet:\n{raw_json[:500]}",
+            ) from exc
+
+        if not isinstance(data, list):
+            return []
+        out: List[Dict[str, Any]] = []
+        for item in data:
+            if isinstance(item, dict) and item.get("name"):
+                out.append({
+                    "name": str(item["name"]),
+                    "updated_description": str(item.get("updated_description", "")),
+                    "related_npcs": item.get("related_npcs") if isinstance(item.get("related_npcs"), list) else None,
+                    "related_locations": item.get("related_locations") if isinstance(item.get("related_locations"), list) else None,
+                })
+        return out
 
 
 gemini_client = GeminiClient()

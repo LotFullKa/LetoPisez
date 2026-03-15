@@ -12,6 +12,8 @@ class NPCEntity(BaseModel):
     status: Optional[str] = None
     tags: Optional[List[str]] = None
     links_to_locations: Optional[List[str]] = Field(default=None, alias="links_to_locations")
+    related_npcs: Optional[List[str]] = None
+    history_snippet: Optional[str] = None
 
 
 class LocationEntity(BaseModel):
@@ -19,6 +21,9 @@ class LocationEntity(BaseModel):
     description: Optional[str] = None
     status: Optional[str] = None
     region: Optional[str] = None
+    related_npcs: Optional[List[str]] = None
+    related_locations: Optional[List[str]] = None
+    history_snippet: Optional[str] = None
 
 
 class QuestEntity(BaseModel):
@@ -34,6 +39,7 @@ class ItemEntity(BaseModel):
     description: Optional[str] = None
     owner: Optional[str] = None
     status: Optional[str] = None
+    related_npcs: Optional[List[str]] = None
 
 
 class ParsedLog(BaseModel):

@@ -42,7 +42,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Отправь сообщение с логом сессии (текстом или голосом), "
         "затем ответь на него командой /log.\n\n"
         "Команда /summary кратко перескажет всю историю кампании, "
-        "основанную на уже сохранённых сессиях."
+        "основанную на уже сохранённых сессиях.\n\n"
+        "Команда /refresh обновит описания персонажей и локаций по всей летописи."
     )
     await update.message.reply_text(text)  # type: ignore[union-attr]
 
@@ -55,7 +56,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "Использование:\n"
         "1. Отправь текст или голосовое сообщение с описанием сессии.\n"
         "2. Ответь на это сообщение командой /log.\n\n"
-        "/summary — кратко пересказать всю историю кампании по сохранённым сессиям."
+        "/summary — кратко пересказать всю историю кампании по сохранённым сессиям.\n\n"
+        "/refresh — обновить описания персонажей (NPC) и локаций по всей летописи кампании."
     )
     await update.message.reply_text(text)  # type: ignore[union-attr]
 
@@ -181,6 +183,58 @@ async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await message.reply_text(summary)
 
 
+async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _ensure_allowed(update, context):
+        return
+
+    message = update.message
+    if not message:
+        return
+
+    try:
+        git_sync.pull()
+    except GitPullError as exc:
+        await message.reply_text(
+            "Не удалось выполнить git pull для летописи.\n"
+            f"Сообщение git:\n{exc.message}",
+        )
+        return
+
+    corpus = vault_manager.collect_campaign_corpus()
+    if not corpus.strip():
+        await message.reply_text(
+            "Пока нет сохранённых сессий. Сначала сохрани хотя бы одну командой /log.",
+        )
+        return
+
+    await message.reply_text("Обновляю описания NPC по летописи…")
+    try:
+        npc_updated = vault_manager.refresh_descriptions_from_corpus(corpus, "npc")
+    except GeminiError as exc:
+        await message.reply_text(
+            "Не удалось обратиться к Gemini для обновления описаний.\n\n"
+            f"Техническая причина:\n{exc}",
+        )
+        return
+
+    await message.reply_text("Обновляю описания локаций по летописи…")
+    try:
+        loc_updated = vault_manager.refresh_descriptions_from_corpus(corpus, "location")
+    except GeminiError as exc:
+        await message.reply_text(
+            "Описания NPC обновлены. Не удалось обновить локации.\n\n"
+            f"Техническая причина:\n{exc}",
+        )
+        git_sync.sync("refresh descriptions")
+        await message.reply_text(f"Готово. Обновлено описаний NPC: {npc_updated}.")
+        return
+
+    git_sync.sync("refresh descriptions")
+    await message.reply_text(
+        f"Готово. Обновлено описаний NPC: {npc_updated}, локаций: {loc_updated}.",
+    )
+
+
 async def _process_voice(
     message,
     context: ContextTypes.DEFAULT_TYPE,
@@ -206,6 +260,7 @@ def main() -> None:
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("log", log_command))
     application.add_handler(CommandHandler("summary", summary_command))
+    application.add_handler(CommandHandler("refresh", refresh_command))
 
     application.run_polling()
 
