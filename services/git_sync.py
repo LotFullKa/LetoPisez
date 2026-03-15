@@ -55,15 +55,6 @@ class GitSync:
             return
 
         self._ensure_repo()
-        # Перед тем как пытаться пушить, стараемся аккуратно подтянуть удалённые изменения.
-        # Это уменьшает вероятность non-fast-forward ошибок для долгоживущего бота.
-        try:
-            self.pull()
-        except GitPullError as e:
-            # Если pull не удался (конфликты, проблемы с remote и т.п.),
-            # явно сигнализируем об этом вызывающему коду.
-            raise GitSyncError(f"git pull before sync failed: {e.message}") from e
-
         self._run("git", "add", "-A")
 
         message = settings.git.commit_message_template

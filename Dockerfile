@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN git config --global --add safe.directory /vault
 RUN git config --global user.email "LetoPisez@gmail.com"
 RUN git config --global user.name "LetoPisez"
+RUN git branch --set-upstream-to=origin/master master
 
 COPY . /app
 
