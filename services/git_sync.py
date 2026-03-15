@@ -55,6 +55,15 @@ class GitSync:
             return
 
         self._ensure_repo()
+        # Перед тем как пытаться пушить, стараемся аккуратно подтянуть удалённые изменения.
+        # Это уменьшает вероятность non-fast-forward ошибок для долгоживущего бота.
+        try:
+            self.pull()
+        except GitPullError as e:
+            # Если pull не удался (конфликты, проблемы с remote и т.п.),
+            # явно сигнализируем об этом вызывающему коду.
+            raise GitSyncError(f"git pull before sync failed: {e.message}") from e
+
         self._run("git", "add", "-A")
 
         message = settings.git.commit_message_template
@@ -75,7 +84,18 @@ class GitSync:
 
         push_result = self._run("git", "push", "origin", "master")
         if push_result.returncode != 0:
-            raise GitSyncError(push_result.stderr or "git push failed")
+            stderr = (push_result.stderr or "").strip()
+            # Если пуш отклонён из‑за non-fast-forward, пробуем ещё раз с явным pull --rebase.
+            if "non-fast-forward" in stderr.lower():
+                retry_pull = self._run("git", "pull", "--rebase")
+                if retry_pull.returncode == 0:
+                    retry_push = self._run("git", "push")
+                    if retry_push.returncode == 0:
+                        return
+                    raise GitSyncError(retry_push.stderr or "git push failed after rebase")
+
+            # Все остальные случаи — сразу ошибка.
+            raise GitSyncError(stderr or "git push failed")
 
 
 git_sync = GitSync(settings.vault_path)

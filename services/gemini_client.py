@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import json
+import time
 
 import google.generativeai as genai
 
@@ -99,9 +101,68 @@ class GeminiClient:
             lines = lines[:-1]
         raw_json = "\n".join(lines).strip()
 
+        # region agent log
+        try:
+            with open(
+                "/home/kamil/Experiments/LetoPisez/.cursor/debug-991892.log",
+                "a",
+                encoding="utf-8",
+            ) as f:
+                f.write(
+                    json.dumps(
+                        {
+                            "sessionId": "991892",
+                            "runId": "pre-fix",
+                            "hypothesisId": "H1",
+                            "location": "services/gemini_client.py:extract_entities:before_validate",
+                            "message": "Gemini raw_json before ParsedLog validation",
+                            "data": {
+                                "raw_json_snippet": raw_json[:300],
+                            },
+                            "timestamp": int(time.time() * 1000),
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n",
+                )
+        except Exception:
+            # Логирование отладки не должно ломать основной поток.
+            pass
+        # endregion
+
         try:
             data: Any = ParsedLog.model_validate_json(raw_json)
         except Exception as exc:  # noqa: BLE001
+            # region agent log
+            try:
+                with open(
+                    "/home/kamil/Experiments/LetoPisez/.cursor/debug-991892.log",
+                    "a",
+                    encoding="utf-8",
+                ) as f:
+                    f.write(
+                        json.dumps(
+                            {
+                                "sessionId": "991892",
+                                "runId": "pre-fix",
+                                "hypothesisId": "H1",
+                                "location": "services/gemini_client.py:extract_entities:on_validate_error",
+                                "message": "Failed to validate ParsedLog from Gemini JSON",
+                                "data": {
+                                    "error": str(exc),
+                                    "raw_json_snippet": raw_json[:300],
+                                },
+                                "timestamp": int(time.time() * 1000),
+                            },
+                            ensure_ascii=False,
+                        )
+                        + "\n",
+                    )
+            except Exception:
+                # Логирование отладки не должно ломать основной поток.
+                pass
+            # endregion
+
             # Пробрасываем более понятную ошибку с кусочком ответа модели.
             snippet = raw_json[:500]
             raise GeminiError(
